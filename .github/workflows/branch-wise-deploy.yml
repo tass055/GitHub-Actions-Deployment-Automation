@@ -1,0 +1,81 @@
+name: Branch-wise-deploy
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published] 
+  pull_request:
+    types: [opened, closed]
+    branches: [develop, master]
+  push:
+    branches: ['master', 'develop', 'stage/**', 'stage']
+  
+jobs:
+  tests:
+    runs-on: Ubuntu-latest
+    if: ${{ github.event.pull_request.base.ref == 'develop' && github.event.action == 'opened' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Use Node.js latest
+        uses: actions/setup-node@v3
+        with:
+          node-version: latest
+      - name: Install dependencies
+        run:  npm install
+      - name: Run tests
+        run: npm run test
+  
+  deploy-QA:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+    uses: ./.github/workflows/develop-branch.yml
+    with:
+      ENVIRONMENT: QA
+    secrets:
+      AWS_S3_BUCKET_QA: ${{ secrets.AWS_S3_BUCKET_QA }}
+      AWS_ACCESS_KEY_ID_QA: ${{ secrets.AWS_ACCESS_KEY_ID_QA }}
+      AWS_SECRET_ACCESS_KEY_QA: ${{ secrets.AWS_SECRET_ACCESS_KEY_QA }}
+         
+  deploy-stage:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/stage' }}
+    uses: ./.github/workflows/staging-branch.yml
+    with: 
+      ENVIRONMENT: STAGE
+    secrets: 
+      AWS_S3_BUCKET_STAGE: ${{ secrets.AWS_S3_BUCKET_STAGE }}
+      AWS_ACCESS_KEY_ID_STAGE: ${{ secrets.AWS_ACCESS_KEY_ID_STAGE }}
+      AWS_SECRET_ACCESS_KEY_STAGE: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGE }}
+      
+  deploy-prod:
+    if: ${{ github.event.pull_request.base.ref == 'master' && github.event.action == 'closed' }}
+    uses: ./.github/workflows/release-draft.yml
+    with: 
+      username: gituser
+    secrets: inherit
+    
+  publish-draft:
+    if: ${{ github.event_name == 'release' }}
+    uses: ./.github/workflows/publish-draft.yml
+    with:
+      ENVIRONMENT: PROD
+    secrets:
+      AWS_S3_BUCKET_PROD: ${{ secrets.AWS_S3_BUCKET_PROD }}
+      AWS_ACCESS_KEY_ID_PROD: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+      AWS_SECRET_ACCESS_KEY_PROD: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+
+  create-rollback:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' && github.ref == 'refs/heads/master' }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Create new branch for rollback
+        run: |
+          MASTER_SHA=$(git rev-parse master)
+
+          BRANCH_NAME="release-$(git describe --tags --abbrev=0)-$(date +'%Y%m%d%H%M%S')"
+
+          git checkout -b "$BRANCH_NAME" "$MASTER_SHA"
+
+          git push origin "$BRANCH_NAME"
