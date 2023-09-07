@@ -1,0 +1,43 @@
+name: Staging Environment 
+
+on:
+  workflow_call:
+    inputs: 
+      ENVIRONMENT:
+         description: environment to deploy to
+         required: true
+         type: string
+    secrets:
+       AWS_S3_BUCKET_STAGE:
+         required: true
+       AWS_ACCESS_KEY_ID_STAGE:
+          required: true
+       AWS_SECRET_ACCESS_KEY_STAGE:
+          required: true
+
+jobs:
+  deploy-staging:
+     runs-on: Ubuntu-latest
+     environment: ${{ inputs.ENVIRONMENT }}
+     steps:
+       - name: Checkout
+         uses: actions/checkout@v3
+       - name: Use Node.js latest
+         uses: actions/setup-node@v3
+         with:
+           node-version: latest
+       - name: Install dependencies
+         run: npm install
+       - name: Build
+         run: npm run build
+
+       - uses: jakejarvis/s3-sync-action@master
+         with:
+           args: --follow-symlinks --exclude '.git/*' --delete
+         env:
+           AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET_STAGE }}
+           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_STAGE }}
+           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGE }}
+           AWS_REGION: 'us-east-1'
+           SOURCE_DIR: 'dist'
+           DEST_DIR: 'static-sites/dist/'
